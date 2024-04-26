@@ -1,34 +1,35 @@
 const { network ,getNamedAccounts, deployments, ethers } = require("hardhat");
 const { developmentChains,networkConfig } = require("../../helper-hardhat-config");
-// const chai = require('chai');
-// const chaiAsPromised = require('chai-as-promised');
-// chai.use(chaiAsPromised);
-// const expect = chai.expect;
-// const assert = chai.assert;
-let expect, assert;
-import('chai').then(chai => {
-   expect = chai.expect;
-   assert = chai.assert;
-
-  // 其他测试逻辑
-});
+const chai = require('chai');
+const chaiAsPromised = require('chai-as-promised');
+chai.use(chaiAsPromised);
+const expect = chai.expect;
+const assert = chai.assert;
 
 !developmentChains.includes(network.name)
     ? describe.skip
     : describe("Raffle Unit test", async function () {
-        let raffle,raffleInstance, vrfCoordinatorV2MockInstance,entranceFee,deployer;
+        let raffleInstance,
+            vrfCoordinatorV2MockInstance,
+            vrfCoordinatorV2Address,
+            entranceFee,
+            deployer,
+            interval;
+        
         const chainId = network.config.chainId;
 
         beforeEach(async function () {
-            await deployments.fixture();
+            await deployments.fixture(["mocks", "raffle"]);
             deployer = (await getNamedAccounts()).deployer;
-            raffle = await deployments.get("Raffle");
+            const raffle = await deployments.get("Raffle");
             const vrfCoordinatorV2Mock = await deployments.get("VRFCoordinatorV2Mock");
-            const vrfCoordinatorV2Address = vrfCoordinatorV2Mock.address;
+            vrfCoordinatorV2Address = vrfCoordinatorV2Mock.address;
             const raffleAddress = raffle.address;
             vrfCoordinatorV2MockInstance = await ethers.getContractAt("VRFCoordinatorV2Mock", vrfCoordinatorV2Address);
             raffleInstance = await ethers.getContractAt("Raffle", raffleAddress);
             entranceFee = await raffleInstance.getEntranceFee();
+            interval = await raffleInstance.getInterval();
+
         }); 
 
         describe("constructor", async function () {
@@ -51,13 +52,22 @@ import('chai').then(chai => {
                 assert.equal(playerFromContract, deployer);
             });
             it("emits event on enter", async function () {
-                // await expect(raffleInstance.enterRaffle({ value: entranceFee })).to.emit( // emits RaffleEnter event if entered to index player(s) address
-                //     raffleInstance,
-                //     "RaffleEnter"
-                // );
                 const result = await raffleInstance.enterRaffle({ value: entranceFee });
                 expect(result).to.exist;
             });
 
+            it("donest allow entrance when raffle is calculating", async function () {
+                await raffleInstance.enterRaffle({ value: entranceFee });
+                const intervalNmuber = ethers.toNumber(interval) + 1; 
+                await network.provider.send("evm_increaseTime", [intervalNmuber]);
+                //进行挖下个区块
+                await network.provider.send("evm_mine", []);
+                //Perform upkeep to put the contract into CALCULATING state
+                
+                await raffleInstance.performUpkeep("0x");
+                await expect(raffleInstance.enterRaffle({ value: entranceFee })).to.eventually.be.rejectedWith( // is reverted when not paid enough or raffle is not open
+                      "Raffle_NotOpen"
+                  );
+            });
         });
     })   

@@ -10,7 +10,7 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
     const { deployer } = await getNamedAccounts();
 
     const chainId = network.config.chainId;
-    let vrfCoordinatorV2Address, subscriptionId;
+    let vrfCoordinatorV2Address, subscriptionId,vrfCoordinatorV2MockInstance;
 
     const VRF_FUND_AMOUNT = ethers.parseEther("30");
     if (developmentChains.includes(network.name)) {
@@ -18,7 +18,7 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
         const vrfCoordinatorV2Mock = await deployments.get("VRFCoordinatorV2Mock","bytecode");
         vrfCoordinatorV2Address = vrfCoordinatorV2Mock.address;
 
-        const vrfCoordinatorV2MockInstance = await ethers.getContractAt("VRFCoordinatorV2Mock", vrfCoordinatorV2Address);
+        vrfCoordinatorV2MockInstance = await ethers.getContractAt("VRFCoordinatorV2Mock", vrfCoordinatorV2Address);
         //创建一个定时任务  同理 https://vrf.chain.link/ 页面创建
         const transactionResponse = await vrfCoordinatorV2MockInstance.createSubscription();
         const transactionReceipt = await transactionResponse.wait(1);
@@ -33,9 +33,14 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
             }
         }
         await vrfCoordinatorV2MockInstance.fundSubscription(subscriptionId,VRF_FUND_AMOUNT);
+         log("-------------------------");
+        await vrfCoordinatorV2MockInstance.addConsumer(
+            subscriptionId,
+            vrfCoordinatorV2Address
+        );
     } else {
         vrfCoordinatorV2Address = networkConfig[chainId]["vrfCoorinatorV2"];
-        subscriptionId = networkConfig[chainId]["subscriptionId"];
+        
     }
     /**
      * 
@@ -60,7 +65,9 @@ module.exports = async ({ getNamedAccounts, deployments }) => {
         log: true,
         waitConfirmations: network.config.blockConfirmations || 1,
     });
-
+    await vrfCoordinatorV2MockInstance.addConsumer(ethers.toNumber(subscriptionId), raffle.address)
+    log("adding consumer...")
+    log("Consumer added!")
     if (!developmentChains.includes(network.name) && process.env.ETHVERIFY_API_KEY) {
         log("Verifying...")
         await verify(raffle.address, args);
